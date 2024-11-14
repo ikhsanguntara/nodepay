@@ -2,3 +2,5 @@ aiohttp
 cloudscraper
 loguru
 fake-useragent
+python-dateutil
+colorama
