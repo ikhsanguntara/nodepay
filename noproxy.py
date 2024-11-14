@@ -139,7 +139,7 @@ async def ping(token):
 
             response = await call_api(DOMAIN_API_ENDPOINTS["PING"][0], data, token)
             if response["code"] == 0:
-                logger.info(f"Ping berhasil {public_ip} : {response}")
+                logger.info(f"Ping : {response.get('msg')}, IP Publik: {public_ip}, Skor IP: {response['data'].get('ip_score')}")
                 RETRIES = 0
                 status_connect = CONNECTION_STATES["CONNECTED"]
             else:
