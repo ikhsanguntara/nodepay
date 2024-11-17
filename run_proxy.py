@@ -114,6 +114,7 @@ async def call_api(url, data, proxy, token):
         response.raise_for_status()
         return valid_resp(response.json())
     except Exception as e:
+        print(f"{get_internet_time()} - {Fore.RED}Failed API call to {url}: {str(e)}")
         raise ValueError(f"Failed API call to {url}")
 
 async def start_ping(proxy, token):
@@ -156,6 +157,7 @@ def handle_ping_fail(proxy, response):
     if response and response.get("code") == 403:
         handle_logout(proxy)
     else:
+        print(f"{get_internet_time()} - {Fore.RED}Ping failed for proxy.")
         remove_proxy_from_list(proxy)
         status_connect = CONNECTION_STATES["DISCONNECTED"]
 
