@@ -3,33 +3,40 @@ import aiohttp
 import time
 import uuid
 import cloudscraper
-from loguru import logger
 from fake_useragent import UserAgent
+import re
+from datetime import datetime, timezone, timedelta
+import requests
+from dateutil import parser
+from colorama import init, Fore, Style
+import itertools
+import threading
+import sys
 
-def show_warning():
-    confirm = input("Dengan menggunakan alat ini berarti Anda memahami risikonya. lakukan dengan risiko Anda sendiri! \nTekan Enter untuk melanjutkan atau Ctrl+C untuk membatalkan... ")
-    if confirm.strip() == "":
-        print("Melanjutkan...")
-    else:
-        print("Keluar...")
-        exit()
+# Inisialisasi colorama
+init(autoreset=True)
 
-# Konstanta
+# Banner
+print(f"{Fore.CYAN}[+]====================[+]")
+print(f"{Fore.CYAN}[+]NODEPAY PROXY SCRIPT[+]")
+print(f"{Fore.CYAN}[+]====================[+]")
+
+# Constants
 PING_INTERVAL = 1
 RETRIES = 60
 
-# Domain API LAMA
+# OLD Domain API
 # PING API: https://nodewars.nodepay.ai / https://nw.nodepay.ai | https://nw2.nodepay.ai | IP: 54.255.192.166
 # SESSION API: https://api.nodepay.ai | IP: 18.136.143.169, 52.77.170.182
 
-# DOMAIN HOST BARU
+# NEW HOST DOMAIN
 #    "SESSION": "https://api.nodepay.org/api/auth/session",
 #    "PING": "https://nw.nodepay.org/api/network/ping"
 
-# Pengujian | Ditemukan alamat IP asli nodepay :P | Host Cloudflare dilewati!
+# Testing | Found nodepay real ip address :P | Cloudflare host bypassed!
 DOMAIN_API_ENDPOINTS = {
     "SESSION": [
-        # http://18.136.143.169/api/auth/session / kembali hanya untuk otentikasi
+        # http://18.136.143.169/api/auth/session / rolling back just for auth
         "https://api.nodepay.ai/api/auth/session"
     ],
     "PING": [
@@ -55,32 +62,39 @@ def uuidv4():
 
 def valid_resp(resp):
     if not resp or "code" not in resp or resp["code"] < 0:
-        raise ValueError("Respon tidak valid")
+        raise ValueError("Invalid response")
     return resp
 
-async def render_profile_info(token):
+async def render_profile_info(proxy, token):
     global browser_id, account_info
     try:
-        np_session_info = load_session_info(None)
+        np_session_info = load_session_info(proxy)
 
         if not np_session_info:
             browser_id = uuidv4()
-            response = await call_api(DOMAIN_API_ENDPOINTS["SESSION"][0], {}, token)
+            response = await call_api(DOMAIN_API_ENDPOINTS["SESSION"][0], {}, proxy, token)
             valid_resp(response)
             account_info = response["data"]
             if account_info.get("uid"):
-                save_session_info(None, account_info)
-                await start_ping(token)
+                save_session_info(proxy, account_info)
+                await start_ping(proxy, token)
             else:
-                handle_logout()
+                handle_logout(proxy)
         else:
             account_info = np_session_info
-            await start_ping(token)
+            await start_ping(proxy, token)
     except Exception as e:
-        logger.error(f"Kesalahan dalam render_profile_info: {e}")
-        return None
+        error_message = str(e)
+        if any(phrase in error_message for phrase in [
+            "sent 1011 (internal error) keepalive ping timeout; no close frame received",
+            "500 Internal Server Error"
+        ]):
+            remove_proxy_from_list(proxy)
+            return None
+        else:
+            return proxy
 
-async def call_api(url, data, token):
+async def call_api(url, data, proxy, token):
     user_agent = UserAgent(os=['windows', 'macos', 'linux'], browsers='chrome')
     random_user_agent = user_agent.random
     headers = {
@@ -94,37 +108,28 @@ async def call_api(url, data, token):
 
     try:
         scraper = cloudscraper.create_scraper()
-        response = scraper.post(url, json=data, headers=headers, timeout=30)
+        response = scraper.post(url, json=data, headers=headers, proxies={
+                                "http": proxy, "https": proxy}, timeout=30)
 
         response.raise_for_status()
         return valid_resp(response.json())
     except Exception as e:
-        logger.error(f"Kesalahan selama panggilan API: {e}")
-        raise ValueError(f"Gagal melakukan panggilan API ke {url}")
+        print(f"{get_internet_time()} - {Fore.RED}Failed API call to {url}: {str(e)}")
+        raise ValueError(f"Failed API call to {url}")
 
-async def start_ping(token):
+async def start_ping(proxy, token):
     try:
         while True:
-            await ping(token)
+            await ping(proxy, token)
             await asyncio.sleep(PING_INTERVAL)
     except asyncio.CancelledError:
-        logger.info(f"Tugas ping dibatalkan")
+        pass
     except Exception as e:
-        logger.error(f"Kesalahan dalam start_ping : {e}")
+        pass
 
-async def get_public_ip():
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get('https://api.ipify.org?format=json') as response:
-                ip_data = await response.json()
-                return ip_data.get('ip')
-    except Exception as e:
-        logger.error(f"Gagal mendapatkan IP publik: {e}")
-        return None
-
-async def ping(token):
+async def ping(proxy, token):
     global last_ping_time, RETRIES, status_connect
-    last_ping_time = time.time()
+    last_ping_time[proxy] = time.time()
 
     try:
         data = {
@@ -133,37 +138,34 @@ async def ping(token):
             "timestamp": int(time.time())
         }
 
-        public_ip = await get_public_ip()
-        if public_ip:
-            # logger.info(f"IP publik saat ini: {public_ip}")
-
-            response = await call_api(DOMAIN_API_ENDPOINTS["PING"][0], data, token)
-            if response["code"] == 0:
-                logger.info(f"Ping : {response.get('msg')}, IP Publik: {public_ip}, Skor IP: {response['data'].get('ip_score')}")
-                RETRIES = 0
-                status_connect = CONNECTION_STATES["CONNECTED"]
-            else:
-                handle_ping_fail(response)
+        response = await call_api(DOMAIN_API_ENDPOINTS["PING"][0], data, proxy, token)
+        if response["code"] == 0:
+            # Ekstrak hanya alamat IP dari proxy
+            ip_address = re.search(r'(?<=@)[^:]+', proxy)
+            if ip_address:
+                print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}Ping : {response.get('msg')}, Skor IP: {response['data'].get('ip_score')}, Proxy IP: {ip_address.group()}")
+            RETRIES = 0
+            status_connect = CONNECTION_STATES["CONNECTED"]
         else:
-            logger.error("Tidak dapat memperoleh IP publik")
+            handle_ping_fail(proxy, response)
     except Exception as e:
-        logger.error(f"Ping gagal {public_ip} : {e}")
-        handle_ping_fail(None)
+        handle_ping_fail(proxy, None)
 
-def handle_ping_fail(response):
+def handle_ping_fail(proxy, response):
     global RETRIES, status_connect
     RETRIES += 1
     if response and response.get("code") == 403:
-        handle_logout()
+        handle_logout(proxy)
     else:
+        print(f"{get_internet_time()} - {Fore.RED}Ping failed for proxy.")
+        remove_proxy_from_list(proxy)
         status_connect = CONNECTION_STATES["DISCONNECTED"]
 
-def handle_logout():
+def handle_logout(proxy):
     global status_connect, account_info
     status_connect = CONNECTION_STATES["NONE_CONNECTION"]
     account_info = {}
-    save_status(None)
-    logger.info(f"Keluar dan menghapus info sesi")
+    save_status(proxy, None)
 
 def load_proxies(proxy_file):
     try:
@@ -171,8 +173,7 @@ def load_proxies(proxy_file):
             proxies = file.read().splitlines()
         return proxies
     except Exception as e:
-        logger.error(f"Gagal memuat proxy: {e}")
-        raise SystemExit("Keluar karena kegagalan memuat proxy")
+        raise SystemExit("Exiting due to failure in loading proxies")
 
 def save_status(proxy, status):
     pass
@@ -193,38 +194,71 @@ def is_valid_proxy(proxy):
 def remove_proxy_from_list(proxy):
     pass
 
+def get_internet_time():
+    try:
+        response = requests.get('http://worldtimeapi.org/api/timezone/Asia/Jakarta')
+        response.raise_for_status()
+        current_time = response.json()['datetime']
+        # Menggunakan dateutil.parser untuk parsing datetime dengan zona waktu
+        return parser.isoparse(current_time).astimezone(timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S %Z')
+    except Exception:
+        # Tidak mencetak pesan kesalahan
+        return datetime.now(timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S %Z')
+
+def loading_animation():
+    for c in itertools.cycle(['|', '/', '-', '\\']):
+        if not loading:
+            break
+        sys.stdout.write(f'\r{Fore.YELLOW}Proses... {c}')
+        sys.stdout.flush()
+        time.sleep(0.1)
+    sys.stdout.write('\r')
+
 async def main():
+    global loading
+    loading = True
+    loading_thread = threading.Thread(target=loading_animation)
+    loading_thread.start()
+
+    all_proxies = load_proxies('local_proxies.txt')
     try:
         with open('tokens.txt', 'r') as token_file:
             tokens = token_file.read().splitlines()
     except FileNotFoundError:
-        print("File tokens.txt tidak ditemukan. Pastikan file tersebut ada di direktori yang benar.")
+        print(f"{get_internet_time()} - {Fore.RED}File tokens.txt tidak ditemukan. Pastikan file tersebut ada di direktori yang benar.")
         exit()
 
     if not tokens:
-        print("Token tidak boleh kosong. Keluar dari program.")
+        print(f"{get_internet_time()} - {Fore.RED}Token tidak boleh kosong. Keluar dari program.")
         exit()
 
-    while True:
-        tasks = []
-        for token in tokens:
-            task = asyncio.create_task(render_profile_info(token))
-            tasks.append(task)
-            logger.info(f"Tugas dimulai untuk token: {token}")
+    # Menggunakan semua proxy dengan token yang tersedia
+    token_proxy_pairs = [(tokens[i % len(tokens)], proxy) for i, proxy in enumerate(all_proxies)]
 
+    tasks = []
+    for token, proxy in token_proxy_pairs:
+        if is_valid_proxy(proxy):
+            task = asyncio.create_task(render_profile_info(proxy, token))
+            tasks.append(task)
+            # print(f"{get_internet_time()} - Task started for token: {token}")
+
+    # Hentikan animasi loading setelah semua tugas dimulai
+    loading = False
+    loading_thread.join()
+
+    while True:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
-                logger.error(f"Tugas menghasilkan kesalahan")
+                print(f"{get_internet_time()} - {Fore.RED}Task resulted in an error")
             else:
-                logger.info(f"Tugas selesai dengan sukses")
+                print(f"{get_internet_time()} - {Fore.GREEN}Task completed successfully")
 
         await asyncio.sleep(10)
 
 if __name__ == '__main__':
-    show_warning()
-    print("\nBaiklah, kita di sini! Masukkan token nodepay Anda yang Anda dapatkan dari tutorial.")
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Program dihentikan oleh pengguna.")
+        print(f"{get_internet_time()} - {Fore.YELLOW}Program terminated by user.")
+        loading = False
