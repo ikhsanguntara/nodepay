@@ -12,6 +12,7 @@ from colorama import init, Fore, Style
 import itertools
 import threading
 import sys
+import random
 
 # Inisialisasi colorama
 init(autoreset=True)
@@ -40,7 +41,8 @@ DOMAIN_API_ENDPOINTS = {
         "https://api.nodepay.ai/api/auth/session"
     ],
     "PING": [
-        "http://54.255.192.166/api/network/ping",
+        #"https://nw.nodepay.org/api/network/ping",
+        #"http://54.255.192.166/api/network/ping",
         "http://52.77.10.116/api/network/ping",
         "http://13.215.134.222/api/network/ping"
     ]
@@ -138,7 +140,10 @@ async def ping(proxy, token):
             "timestamp": int(time.time())
         }
 
-        response = await call_api(DOMAIN_API_ENDPOINTS["PING"][0], data, proxy, token)
+        # Pilih endpoint PING secara acak
+        ping_url = random.choice(DOMAIN_API_ENDPOINTS["PING"])
+        response = await call_api(ping_url, data, proxy, token)
+        
         if response["code"] == 0:
             # Ekstrak hanya alamat IP dari proxy
             ip_address = re.search(r'(?<=@)[^:]+', proxy)
