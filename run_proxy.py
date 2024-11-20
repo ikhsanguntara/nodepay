@@ -14,17 +14,17 @@ import threading
 import sys
 import random
 
-# Inisialisasi colorama
+
 init(autoreset=True)
 
-# Banner
+
 print(f"{Fore.CYAN}[+]====================[+]")
 print(f"{Fore.CYAN}[+]NODEPAY PROXY SCRIPT[+]")
 print(f"{Fore.CYAN}[+]====================[+]")
 
-# Constants
+
 PING_INTERVAL = 0.5
-RETRIES = 30
+RETRIES = 60
 
 # OLD Domain API
 # PING API: https://nodewars.nodepay.ai / https://nw.nodepay.ai | https://nw2.nodepay.ai | IP: 54.255.192.166
@@ -46,7 +46,7 @@ DOMAIN_API_ENDPOINTS = {
        # "http://52.77.10.116/api/network/ping",
        # "http://54.255.192.166/api/network/ping",
        # "http://18.136.143.169/api/network/ping",
-        "http://13.215.134.222/api/network/ping"
+        "http://13.215.134.222/api/network/ping",
        # "http://52.74.35.173/api/network/ping",
        # "http://18.142.214.13/api/network/ping",
        # "http://18.142.29.174/api/network/ping",
@@ -80,7 +80,7 @@ async def render_profile_info(proxy, token):
 
         if not np_session_info:
             browser_id = uuidv4()
-            # Gunakan endpoint SESSION secara acak
+
             session_url = random.choice(DOMAIN_API_ENDPOINTS["SESSION"])
             response = await call_api(session_url, {}, proxy, token)
             valid_resp(response)
@@ -105,7 +105,7 @@ async def render_profile_info(proxy, token):
             return proxy
 
 async def call_api(url, data, proxy, token):
-    # Gunakan aiohttp untuk panggilan API asinkron
+
     async with aiohttp.ClientSession() as session:
         headers = {
             "Authorization": f"Bearer {token}",
@@ -120,7 +120,7 @@ async def call_api(url, data, proxy, token):
                 response.raise_for_status()
                 return valid_resp(await response.json())
         except Exception as e:
-            print(f"{get_internet_time()} - {Fore.RED}Failed API call to {url}: {str(e)}")
+            print(f"{get_internet_time()} - {Fore.RED}| Nodepay | Failed API call to {url}: {str(e)}")
             raise ValueError(f"Failed API call to {url}")
 
 async def start_ping(proxy, token, session_url):
@@ -144,12 +144,12 @@ async def ping(proxy, token, session_url):
             "timestamp": int(time.time())
         }
 
-        # Pilih endpoint PING secara acak
+
         ping_url = random.choice(DOMAIN_API_ENDPOINTS["PING"])
         response = await call_api(ping_url, data, proxy, token)
         
         if response["code"] == 0:
-            # Ekstrak hanya alamat IP dari proxy
+
             ip_address = re.search(r'(?<=@)[^:]+', proxy)
             if ip_address:
                 print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}Ping : {response.get('msg')}, Skor IP: {response['data'].get('ip_score')}, Proxy IP: {ip_address.group()}")
@@ -167,7 +167,11 @@ def handle_ping_fail(proxy, response):
     if response and response.get("code") == 403:
         handle_logout(proxy)
     else:
-        print(f"{get_internet_time()} - {Fore.RED}Ping failed for proxy.")
+        ip_address = re.search(r'(?<=@)[^:]+', proxy)
+        if ip_address:
+            print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Ping failed for proxy. Proxy IP: {ip_address.group()}")
+        else:
+            print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Ping failed for proxy.")
         remove_proxy_from_list(proxy)
         status_connect = CONNECTION_STATES["DISCONNECTED"]
 
@@ -209,10 +213,8 @@ def get_internet_time():
         response = requests.get('http://worldtimeapi.org/api/timezone/Asia/Jakarta')
         response.raise_for_status()
         current_time = response.json()['datetime']
-        # Menggunakan dateutil.parser untuk parsing datetime dengan zona waktu
         return parser.isoparse(current_time).astimezone(timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S %Z')
     except Exception:
-        # Tidak mencetak pesan kesalahan
         return datetime.now(timezone(timedelta(hours=7))).strftime('%Y-%m-%d %H:%M:%S %Z')
 
 def loading_animation():
@@ -242,7 +244,6 @@ async def main():
         print(f"{get_internet_time()} - {Fore.RED}Token tidak boleh kosong. Keluar dari program.")
         exit()
 
-    # Menggunakan semua proxy dengan token yang tersedia
     token_proxy_pairs = [(tokens[i % len(tokens)], proxy) for i, proxy in enumerate(all_proxies)]
 
     tasks = []
@@ -250,13 +251,12 @@ async def main():
         if is_valid_proxy(proxy):
             task = asyncio.create_task(render_profile_info(proxy, token))
             tasks.append(task)
-            # print(f"{get_internet_time()} - Task started for token: {token}")
 
-    # Hentikan animasi loading setelah semua tugas dimulai
     loading = False
     loading_thread.join()
 
-    while True:
+    running = True
+    while running:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
