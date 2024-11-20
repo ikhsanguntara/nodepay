@@ -23,8 +23,8 @@ print(f"{Fore.CYAN}[+]NODEPAY PROXY SCRIPT[+]")
 print(f"{Fore.CYAN}[+]====================[+]")
 
 # Constants
-PING_INTERVAL = 1
-RETRIES = 60
+PING_INTERVAL = 0.5
+RETRIES = 30
 
 # OLD Domain API
 # PING API: https://nodewars.nodepay.ai / https://nw.nodepay.ai | https://nw2.nodepay.ai | IP: 54.255.192.166
@@ -37,14 +37,20 @@ RETRIES = 60
 # Testing | Found nodepay real ip address :P | Cloudflare host bypassed!
 DOMAIN_API_ENDPOINTS = {
     "SESSION": [
-        # http://18.136.143.169/api/auth/session / rolling back just for auth
+        #"http://18.136.143.169/api/auth/session",
         "https://api.nodepay.ai/api/auth/session"
+        #"https://nodepay.org/api/auth/session"
     ],
     "PING": [
-        #"https://nw.nodepay.org/api/network/ping",
-        #"http://54.255.192.166/api/network/ping",
-        "http://52.77.10.116/api/network/ping",
-        "http://13.215.134.222/api/network/ping"
+       # "https://nw.nodepay.org/api/network/ping",
+       # "http://52.77.10.116/api/network/ping",
+       # "http://54.255.192.166/api/network/ping",
+       # "http://18.136.143.169/api/network/ping",
+        "http://13.215.134.222/api/network/ping",
+       # "http://52.74.35.173/api/network/ping",
+       # "http://18.142.214.13/api/network/ping",
+       # "http://18.142.29.174/api/network/ping",
+       # "http://52.74.31.107/api/network/ping"
     ]
 }
 
@@ -74,17 +80,19 @@ async def render_profile_info(proxy, token):
 
         if not np_session_info:
             browser_id = uuidv4()
-            response = await call_api(DOMAIN_API_ENDPOINTS["SESSION"][0], {}, proxy, token)
+            # Gunakan endpoint SESSION secara acak
+            session_url = random.choice(DOMAIN_API_ENDPOINTS["SESSION"])
+            response = await call_api(session_url, {}, proxy, token)
             valid_resp(response)
             account_info = response["data"]
             if account_info.get("uid"):
                 save_session_info(proxy, account_info)
-                await start_ping(proxy, token)
+                await start_ping(proxy, token, session_url)
             else:
                 handle_logout(proxy)
         else:
             account_info = np_session_info
-            await start_ping(proxy, token)
+            await start_ping(proxy, token, None)
     except Exception as e:
         error_message = str(e)
         if any(phrase in error_message for phrase in [
@@ -97,39 +105,35 @@ async def render_profile_info(proxy, token):
             return proxy
 
 async def call_api(url, data, proxy, token):
-    user_agent = UserAgent(os=['windows', 'macos', 'linux'], browsers='chrome')
-    random_user_agent = user_agent.random
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "User-Agent": random_user_agent,
-        "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Referer": "https://app.nodepay.ai",
-    }
+    # Gunakan aiohttp untuk panggilan API asinkron
+    async with aiohttp.ClientSession() as session:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": UserAgent().random,
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Referer": "https://app.nodepay.ai",
+        }
+        try:
+            async with session.post(url, json=data, headers=headers, proxy=proxy, timeout=30) as response:
+                response.raise_for_status()
+                return valid_resp(await response.json())
+        except Exception as e:
+            print(f"{get_internet_time()} - {Fore.RED}Failed API call to {url}: {str(e)}")
+            raise ValueError(f"Failed API call to {url}")
 
-    try:
-        scraper = cloudscraper.create_scraper()
-        response = scraper.post(url, json=data, headers=headers, proxies={
-                                "http": proxy, "https": proxy}, timeout=30)
-
-        response.raise_for_status()
-        return valid_resp(response.json())
-    except Exception as e:
-        print(f"{get_internet_time()} - {Fore.RED}Failed API call to {url}: {str(e)}")
-        raise ValueError(f"Failed API call to {url}")
-
-async def start_ping(proxy, token):
+async def start_ping(proxy, token, session_url):
     try:
         while True:
-            await ping(proxy, token)
+            await ping(proxy, token, session_url)
             await asyncio.sleep(PING_INTERVAL)
     except asyncio.CancelledError:
         pass
     except Exception as e:
         pass
 
-async def ping(proxy, token):
+async def ping(proxy, token, session_url):
     global last_ping_time, RETRIES, status_connect
     last_ping_time[proxy] = time.time()
 
@@ -149,6 +153,7 @@ async def ping(proxy, token):
             ip_address = re.search(r'(?<=@)[^:]+', proxy)
             if ip_address:
                 print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}Ping : {response.get('msg')}, Skor IP: {response['data'].get('ip_score')}, Proxy IP: {ip_address.group()}")
+              #  print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}SESSION: {session_url}, PING: {ping_url}")
             RETRIES = 0
             status_connect = CONNECTION_STATES["CONNECTED"]
         else:
