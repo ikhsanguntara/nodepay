@@ -106,7 +106,6 @@ async def render_profile_info(proxy, token):
             return proxy
 
 async def call_api(url, data, proxy, token):
-
     async with aiohttp.ClientSession() as session:
         headers = {
             "Authorization": f"Bearer {token}",
@@ -117,9 +116,13 @@ async def call_api(url, data, proxy, token):
             "Referer": "https://app.nodepay.ai",
         }
         try:
-            async with session.post(url, json=data, headers=headers, proxy=proxy, timeout=30) as response:
+            async with session.post(url, json=data, headers=headers, proxy=proxy, timeout=60) as response:
                 response.raise_for_status()
                 return valid_resp(await response.json())
+        except aiohttp.ClientError as e:
+            print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Client error during API call to {url}: {str(e)}")
+        except asyncio.TimeoutError:
+            print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Timeout during API call to {url}")
         except Exception as e:
             print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Failed API call to {url}: {str(e)}")
             raise ValueError(f"Failed API call to {url}")
@@ -132,6 +135,7 @@ async def start_ping(proxy, token, session_url):
     except asyncio.CancelledError:
         pass
     except Exception as e:
+        # Tangani pengecualian lain jika diperlukan
         pass
 
 async def ping(proxy, token, session_url):
@@ -145,20 +149,21 @@ async def ping(proxy, token, session_url):
             "timestamp": int(time.time())
         }
 
-
         ping_url = random.choice(DOMAIN_API_ENDPOINTS["PING"])
         response = await call_api(ping_url, data, proxy, token)
         
         if response["code"] == 0:
-
             ip_address = re.search(r'(?<=@)[^:]+', proxy)
             if ip_address:
                 print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}Ping : {response.get('msg')}, Skor IP: {response['data'].get('ip_score')}, Proxy IP: {ip_address.group()}")
-              #  print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}SESSION: {session_url}, PING: {ping_url}")
+               # print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}SESSION: {session_url}, PING: {ping_url}")
             RETRIES = 0
             status_connect = CONNECTION_STATES["CONNECTED"]
         else:
             handle_ping_fail(proxy, response)
+    except asyncio.TimeoutError:
+        print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Timeout during API call to {ping_url}")
+        # Lanjutkan loop meskipun terjadi timeout
     except Exception as e:
         handle_ping_fail(proxy, None)
 
