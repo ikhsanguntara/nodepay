@@ -156,7 +156,7 @@ async def ping(proxy, token, session_url):
             ip_address = re.search(r'(?<=@)[^:]+', proxy)
             if ip_address:
                 print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}Ping : {response.get('msg')}, Skor IP: {response['data'].get('ip_score')}, Proxy IP: {ip_address.group()}")
-               # print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}SESSION: {session_url}, PING: {ping_url}")
+                print(f"{get_internet_time()}| Nodepay | -  {Fore.GREEN}SESSION: {session_url}, PING: {ping_url}")
             RETRIES = 0
             status_connect = CONNECTION_STATES["CONNECTED"]
         else:
@@ -261,8 +261,7 @@ async def main():
     loading = False
     loading_thread.join()
 
-    running = True
-    while running:
+    while True:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
