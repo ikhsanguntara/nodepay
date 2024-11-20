@@ -120,7 +120,7 @@ async def call_api(url, data, proxy, token):
                 response.raise_for_status()
                 return valid_resp(await response.json())
         except Exception as e:
-            print(f"{get_internet_time()} - {Fore.RED}| Nodepay | Failed API call to {url}: {str(e)}")
+            print(f"{get_internet_time()}{Fore.RED}| Nodepay | -  Failed API call to {url}: {str(e)}")
             raise ValueError(f"Failed API call to {url}")
 
 async def start_ping(proxy, token, session_url):
